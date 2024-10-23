@@ -49,7 +49,7 @@
 #define ALTERNATEPATTERN 1
 #endif
 
-#define I2S_DEVICE 1
+#define I2S_DEVICE 0
 
 #define AAA (0x00AA00AAL)
 #define CC (0x0000CCCCL)
@@ -238,6 +238,9 @@ class I2SClocklessLedDriver
   const periph_module_t deviceModule[2] = {PERIPH_I2S0_MODULE, PERIPH_I2S1_MODULE};
 
   public:
+  int i2s_dev;
+  int interruptSource;
+
   i2s_dev_t *i2s;
   uint8_t __green_map[256];
   uint8_t __blue_map[256];
@@ -308,6 +311,12 @@ class I2SClocklessLedDriver
 
 
   I2SClocklessLedDriver(){};
+  I2SClocklessLedDriver(int device) : i2s_dev(device) {
+        i2s = (device == 0) ? &I2S0 : &I2S1;
+        interruptSource = (device == 0) ? ETS_I2S0_INTR_SOURCE : ETS_I2S1_INTR_SOURCE;
+        periph_module_enable((device == 0) ? PERIPH_I2S0_MODULE : PERIPH_I2S1_MODULE);
+    }
+
   void setPins(int *Pins)
   {
 
@@ -358,21 +367,6 @@ class I2SClocklessLedDriver
 
   void i2sInit()
   {
-    int interruptSource;
-    if (I2S_DEVICE == 0)
-    {
-      i2s = &I2S0;
-      periph_module_enable(PERIPH_I2S0_MODULE);
-      interruptSource = ETS_I2S0_INTR_SOURCE;
-      i2s_base_pin_index = I2S0O_DATA_OUT0_IDX;
-    }
-    else
-    {
-      i2s = &I2S1;
-      periph_module_enable(PERIPH_I2S1_MODULE);
-      interruptSource = ETS_I2S1_INTR_SOURCE;
-      i2s_base_pin_index = I2S1O_DATA_OUT0_IDX;
-    }
 
     i2sReset();
     i2sReset_DMA();
@@ -419,25 +413,21 @@ class I2SClocklessLedDriver
     SET_PERI_REG_BITS(I2S_INT_ENA_REG(I2S_DEVICE), I2S_OUT_TOTAL_EOF_INT_ENA_V, 1, I2S_OUT_TOTAL_EOF_INT_ENA_S);
     SET_PERI_REG_BITS(I2S_INT_ENA_REG(I2S_DEVICE), I2S_OUT_TOTAL_EOF_INT_ENA_V, 1, I2S_OUT_TOTAL_EOF_INT_ENA_S);
     */
-    ESP_LOGD(TAG_I2S, "ESP INTR ALLOC");
     esp_err_t e = esp_intr_alloc(interruptSource, ESP_INTR_FLAG_INTRDISABLED | ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM, &_I2SClocklessLedDriverinterruptHandler, this, &_gI2SClocklessDriver_intr_handle);
 
     // -- Create a semaphore to block execution until all the controllers are done
 
     if (I2SClocklessLedDriver_sem == NULL)
     {
-      ESP_LOGE(TAG_I2S, "SEMAPHORE _sem CREATED INIT");
       I2SClocklessLedDriver_sem = xSemaphoreCreateBinary();
     }
 
     if (I2SClocklessLedDriver_semSync == NULL)
     {
-      ESP_LOGE(TAG_I2S, "SEMAPHORE _semSync CREATED INIT");
       I2SClocklessLedDriver_semSync = xSemaphoreCreateBinary();
     }
     if (I2SClocklessLedDriver_semDisp == NULL)
     {
-      ESP_LOGE(TAG_I2S, "SEMAPHORE Disp CREATED INIT");
       I2SClocklessLedDriver_semDisp = xSemaphoreCreateBinary();
     }
   }
@@ -514,16 +504,13 @@ class I2SClocklessLedDriver
     transpose = false;
     ////wasWaitingtofinish = true;
     //  Serial.printf(" was:%d\n",wasWaitingtofinish);
-    ESP_LOGD(TAG_I2S, "WAS: %d", wasWaitingtofinish);
     i2sStart(DMABuffersTransposed[0]);
 
     if (dispmode == WAIT)
     {
       isWaiting = true;
       if( I2SClocklessLedDriver_sem==NULL)
-        ESP_LOGD(TAG_I2S,"semaphore is CREATED");
         I2SClocklessLedDriver_sem=xSemaphoreCreateBinary();
-      ESP_LOGD(TAG_I2S, "WAITING IN FROMBUFFER");
       xSemaphoreTake(I2SClocklessLedDriver_sem, portMAX_DELAY);
     }
 
@@ -548,11 +535,9 @@ class I2SClocklessLedDriver
   {
     uint8_t *tmp_leds;
     //  Serial.println("on entre");
-    ESP_LOGD("SHOWFIRSTTRANS", "on entre");
     if ( isDisplaying == true && __displayMode == NO_WAIT)
     {
       // Serial.println("we are here in trs");
-      ESP_LOGD("SHOWFIRSTTRANS","we are here in trs");
       wasWaitingtofinish = true;
       tmp_leds = new_leds;
       if(I2SClocklessLedDriver_waitDisp==NULL)
@@ -560,7 +545,6 @@ class I2SClocklessLedDriver
       xSemaphoreTake(I2SClocklessLedDriver_waitDisp, portMAX_DELAY);
       wasWaitingtofinish = false;
       // Serial.println("deiba waiuting in tre");
-      ESP_LOGD("SHOWFIRSTTRANS","deiba waiuting in tre");
       new_leds=tmp_leds;
 
     }
@@ -576,7 +560,6 @@ class I2SClocklessLedDriver
   void showPixelsFirstTranspose(displayMode dispmode)
   {
     // Serial.println("on entrre");
-    ESP_LOGD("SHOWFIRSTTRANS","on entr
     transpose = false;
     if (leds == NULL)
     {
@@ -586,7 +569,7 @@ class I2SClocklessLedDriver
     if ( isDisplaying == true && dispmode == NO_WAIT)
     {
       // Serial.println("we are here");
-      ESP_LOGE("FIRST TRANSOISE","we are here");
+      // ESP_LOGE("FIRST TRANSOISE","we are here");
       wasWaitingtofinish = true;
       if(I2SClocklessLedDriver_waitDisp==NULL)
         I2SClocklessLedDriver_waitDisp= xSemaphoreCreateCounting(10,0);
@@ -720,7 +703,8 @@ loadAndTranspose(leds, stripSize, num_strips, (uint16_t *)DMABuffersTransposed[j
     int posOnStrip =pos;
     if (pos>total_leds-1)
     {
-      printf("Position out of bound %d > %d\n",pos,total_leds-1);
+      // printf("Position out of bound %d > %d\n",pos,total_leds-1);
+      ESP_LOGE(TAG_I2S,"Position out of bound %lu > %d\n",pos,total_leds-1);
       return;
     }
     while(total<=pos)
@@ -811,7 +795,6 @@ loadAndTranspose(leds, stripSize, num_strips, (uint16_t *)DMABuffersTransposed[j
     if(isDisplaying == true )
     {
       wasWaitingtofinish = true;
-      ESP_LOGD(TAG_I2S, "already displaying... wait");
       if(I2SClocklessLedDriver_waitDisp==NULL)
       {
         I2SClocklessLedDriver_waitDisp = xSemaphoreCreateCounting(10,0);
@@ -931,21 +914,17 @@ loadAndTranspose(leds, stripSize, num_strips, (uint16_t *)DMABuffersTransposed[j
 
     // __displayMode=dispmode;
     dmaBufferActive = 1;
-    ESP_LOGD(TAG_I2S, "I@S START");
     i2sStart(DMABuffersTampon[2]);
     isDisplaying=true;
     if (__displayMode == WAIT)
     {
       isWaiting = true;
-      ESP_LOGD(TAG_I2S, "waiting in __showpixels");
       if (I2SClocklessLedDriver_sem==NULL){
-        ESP_LOGD(TAG_I2S,"semaphore SEM is CREATED");
         I2SClocklessLedDriver_sem=xSemaphoreCreateBinary();
 
       }
       xSemaphoreTake(I2SClocklessLedDriver_sem, portMAX_DELAY);
     } else {
-      ESP_LOGD(TAG_I2S, "displaying");
       isWaiting = false;
       isDisplaying = true;
     }
@@ -1075,14 +1054,10 @@ loadAndTranspose(leds, stripSize, num_strips, (uint16_t *)DMABuffersTransposed[j
   void initled(uint8_t *leds, int *Pinsq, int num_strips, int num_led_per_strip,colorarrangment cArr)
   {
 
-    ESP_LOGI("I2S", "YO ");
-    ESP_LOGI("I2S", "pixels_ %p", leds);
-    ESP_LOGI("I2S", "pins %p", Pinsq);
     for(int i=0;i<num_strips;i++)
     {
       this->stripSize[i]=num_led_per_strip;
     }
-    ESP_LOGI("I2S", "YO ");
     initled(leds, Pinsq,this->stripSize, num_strips,cArr);
   }
 
@@ -1230,15 +1205,15 @@ loadAndTranspose(leds, stripSize, num_strips, (uint16_t *)DMABuffersTransposed[j
   void i2sReset_DMA()
   {
 
-    (&I2S0)->lc_conf.out_rst = 1;
-    (&I2S0)->lc_conf.out_rst = 0;
+    i2s->lc_conf.out_rst = 1;
+    i2s->lc_conf.out_rst = 0;
   }
 
   void i2sReset_FIFO()
   {
 
-    (&I2S0)->conf.tx_fifo_reset = 1;
-    (&I2S0)->conf.tx_fifo_reset = 0;
+    i2s->conf.tx_fifo_reset = 1;
+    i2s->conf.tx_fifo_reset = 0;
   }
   /*
      void   i2sStop()
@@ -1309,44 +1284,42 @@ loadAndTranspose(leds, stripSize, num_strips, (uint16_t *)DMABuffersTransposed[j
     framesync = false;
     counti = 0;
 
-    (&I2S0)->lc_conf.val = I2S_OUT_DATA_BURST_EN | I2S_OUTDSCR_BURST_EN | I2S_OUT_DATA_BURST_EN;
+    i2s->lc_conf.val = I2S_OUT_DATA_BURST_EN | I2S_OUTDSCR_BURST_EN | I2S_OUT_DATA_BURST_EN;
 
-    (&I2S0)->out_link.addr = (uint32_t) & (startBuffer->descriptor);
+    i2s->out_link.addr = (uint32_t) & (startBuffer->descriptor);
 
-    (&I2S0)->out_link.start = 1;
+    i2s->out_link.start = 1;
 
-    (&I2S0)->int_clr.val = (&I2S0)->int_raw.val;
+    i2s->int_clr.val = i2s->int_raw.val;
 
-    (&I2S0)->int_clr.val = (&I2S0)->int_raw.val;
-    (&I2S0)->int_ena.val = 0;
+    i2s->int_clr.val = i2s->int_raw.val;
+    i2s->int_ena.val = 0;
 
     /*
        If we do not use the regular showpixels, then no need to activate the interupt at the end of each pixels
        */
     //if(transpose)
-    (&I2S0)->int_ena.out_eof = 1;
+    i2s->int_ena.out_eof = 1;
 
-    (&I2S0)->int_ena.out_total_eof = 1;
+    i2s->int_ena.out_total_eof = 1;
 
-    ESP_LOGD(TAG_I2S, "enable intr");
     esp_intr_enable(_gI2SClocklessDriver_intr_handle);
 
     //We start the I2S
-    (&I2S0)->conf.tx_start = 1;
+    i2s->conf.tx_start = 1;
 
     //Set the mode to indicate that we've started
     isDisplaying = true;
   }
 
-  // void IRAM_ATTR i2sReset()
-  void i2sReset()
+  void IRAM_ATTR i2sReset()
   {
     const unsigned long lc_conf_reset_flags = I2S_IN_RST_M | I2S_OUT_RST_M | I2S_AHBM_RST_M | I2S_AHBM_FIFO_RST_M;
-    (&I2S0)->lc_conf.val |= lc_conf_reset_flags;
-    (&I2S0)->lc_conf.val &= ~lc_conf_reset_flags;
+    i2s->lc_conf.val |= lc_conf_reset_flags;
+    i2s->lc_conf.val &= ~lc_conf_reset_flags;
     const uint32_t conf_reset_flags = I2S_RX_RESET_M | I2S_RX_FIFO_RESET_M | I2S_TX_RESET_M | I2S_TX_FIFO_RESET_M;
-    (&I2S0)->conf.val |= conf_reset_flags;
-    (&I2S0)->conf.val &= ~conf_reset_flags;
+    i2s->conf.val |= conf_reset_flags;
+    i2s->conf.val &= ~conf_reset_flags;
   }
 
   // static void IRAM_ATTR interruptHandler(void *arg);
@@ -1357,8 +1330,8 @@ static void IRAM_ATTR  i2sStop( I2SClocklessLedDriver *cont)
   esp_intr_disable(cont->_gI2SClocklessDriver_intr_handle);
 
   ets_delay_us(16);
-  (&I2S0)->conf.tx_start = 0;
-  while( (&I2S0)->conf.tx_start ==1){}
+  cont->i2s->conf.tx_start = 0;
+  while( cont->i2s->conf.tx_start ==1){}
   cont->i2sReset();
 
   cont->isDisplaying =false;
@@ -1368,13 +1341,13 @@ static void IRAM_ATTR  i2sStop( I2SClocklessLedDriver *cont)
   {
 
     cont->wasWaitingtofinish = false;
-        ESP_LOGE("FRAMESYNC", "WASWAITING GIVE SEM BACK");
     xSemaphoreGive( cont->I2SClocklessLedDriver_waitDisp);
 
   }
 
 
 }
+
 static void IRAM_ATTR _I2SClocklessLedDriverinterruptHandler(void *arg)
 {
 #ifdef DO_NOT_USE_INTERUPT
