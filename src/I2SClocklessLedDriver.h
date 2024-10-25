@@ -310,8 +310,8 @@ class I2SClocklessLedDriver
   volatile int counti;
 
 
-  I2SClocklessLedDriver(){};
-  I2SClocklessLedDriver(int device) : i2s_dev(device) {
+  // I2SClocklessLedDriver(){};
+  I2SClocklessLedDriver(int device=I2S_DEVICE) : i2s_dev(device) {
         i2s = (device == 0) ? &I2S0 : &I2S1;
         interruptSource = (device == 0) ? ETS_I2S0_INTR_SOURCE : ETS_I2S1_INTR_SOURCE;
         periph_module_enable((device == 0) ? PERIPH_I2S0_MODULE : PERIPH_I2S1_MODULE);
